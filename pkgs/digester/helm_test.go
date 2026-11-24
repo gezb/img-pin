@@ -8,6 +8,7 @@ import (
 	"github.com/robdavid/genutil-go/errors/test"
 	"github.com/robdavid/genutil-go/slices"
 	"github.com/robdavid/img-pin/pkgs/digester"
+	"github.com/robdavid/img-pin/pkgs/digester/types"
 	"github.com/robdavid/img-pin/pkgs/images"
 	imghelpers "github.com/robdavid/img-pin/pkgs/images/test/helpers"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ func TestValuesSearch(t *testing.T) {
 	hp.AddValuesSpecificImages(&values)
 	assert.Equal(6, len(hp.Images))
 	actual := slices.Map(hp.Images,
-		func(i digester.ImageDetails) string { return i.String() })
+		func(i types.ImageDetails) string { return i.String() })
 	assert.Contains(actual, "docker.io/ubuntu:20.04")
 	assert.Contains(actual, "ubuntu:22.04")
 	assert.Contains(actual, "public.ecr.aws/docker/library/vault:1.13.3")

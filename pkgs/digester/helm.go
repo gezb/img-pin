@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
 	. "github.com/robdavid/genutil-go/errors/handler"
 	"github.com/robdavid/genutil-go/slices"
@@ -16,97 +15,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// ImageDetails holds image fields detected from chart and deployment values,
-// including where they are located in the YAML AST.
-type ImageDetails struct {
-	Registry   yu.PathValue[string]
-	Repository yu.PathValue[string]
-	Tag        yu.PathValue[string]
-}
-
-func ImageDetailsFromImage(img *images.Image) (d ImageDetails) {
+func ImageDetailsFromImage(img *images.Image) (d types.ImageDetails) {
 	d.Set(img)
 	return d
 }
 
-func (d *ImageDetails) WriteInto(dep types.Deployment) error {
-	for _, pathValue := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
-		if pathValue.Path != nil {
-			if err := dep.WriteStringValue(pathValue.Value, pathValue.Path.Objects()...); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (d *ImageDetails) String() string {
-	if d.Tag.Value != "" {
-		if d.Registry.Value != "" {
-			return joinStr(joinStr(d.Registry.Value, "/", d.Repository.Value), ":", d.Tag.Value)
-		}
-		return joinStr(d.Repository.Value, ":", d.Tag.Value)
-	} else {
-		if d.Registry.Value != "" {
-			return joinStr(d.Registry.Value, "/", d.Repository.Value)
-		} else {
-			return d.Repository.Value
-		}
-	}
-}
-
-func joinStr(prefix, delim, suffix string) string {
-	if strings.HasSuffix(prefix, delim) || strings.HasPrefix(suffix, delim) {
-		return prefix + suffix
-	} else {
-		return prefix + delim + suffix
-	}
-}
-
-func (d *ImageDetails) Parent() yu.Path {
-	for _, pv := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
-		if pv.Path != nil {
-			return pv.Path[:len(pv.Path)-1]
-		}
-	}
-	panic("image details have no parent path!")
-}
-
-func (d *ImageDetails) Set(img *images.Image) {
-	tag := img.Tag
-	if img.Digest != "" {
-		tag += "@" + img.Digest
-	}
-	if d.Registry.IsEmpty() {
-		if d.Tag.IsEmpty() {
-			d.Repository.Value = img.String()
-		} else {
-			d.Repository.Value = img.Registry + "/" + img.Repository
-			d.Tag.Value = tag
-		}
-	} else {
-		d.Registry.Value = img.Registry
-		if d.Tag.IsEmpty() {
-			d.Repository.Value = img.Repository + ":" + tag
-		} else {
-			d.Repository.Value = img.Repository
-			d.Tag.Value = tag
-		}
-	}
-}
-
-func (d *ImageDetails) Where() string {
-	for _, pv := range []*yu.PathValue[string]{&d.Registry, &d.Repository, &d.Tag} {
-		if len(pv.Path) > 1 {
-			parent := pv.Path[:len(pv.Path)-1]
-			return fmt.Sprintf("at path %s", parent)
-		}
-	}
-	return ""
-}
-
-func groupToDetails(root *yaml.Node, group yu.EntryGroup) (details ImageDetails, match bool) {
-	posns := make(map[string]int) // Positions of matches in group
+func groupToDetails(root *yaml.Node, group yu.EntryGroup) (details types.ImageDetails, match bool) {
+		posns := make(map[string]int) // Positions of matches in group
 
 	for posn, entry := range group.Entries {
 		name := entry.Path[len(entry.Path)-1].String()
@@ -160,7 +75,7 @@ func groupToDetails(root *yaml.Node, group yu.EntryGroup) (details ImageDetails,
 	return
 }
 
-func searchForImageDetails(root *yaml.Node) (details []ImageDetails) {
+func searchForImageDetails(root *yaml.Node) (details []types.ImageDetails) {
 	if root == nil {
 		return nil
 	}
@@ -169,7 +84,7 @@ func searchForImageDetails(root *yaml.Node) (details []ImageDetails) {
 	// matches3 := yu.MatchManyWithNode(root, yu.PathOf("**", "image")) // Some charts allow direct image insertion
 	matches := slices.Concat(matches1, matches2)
 	groups := yu.GroupByPrefix(matches)
-	details = make([]ImageDetails, 0, len(groups))
+	details = make([]types.ImageDetails, 0, len(groups))
 	for _, group := range groups {
 		if d, ok := groupToDetails(root, group); ok {
 			if _, err := images.Parse(d.String()); err == nil {
@@ -186,12 +101,12 @@ type HelmProcessor struct {
 	Deployment types.Deployment
 	// Images holds the default image values found in the
 	// helm chart's values file
-	Images []ImageDetails
+	Images []types.ImageDetails
 	// DeploymentImages are the images with any overrides
 	// applied by the
-	DeploymentImages []ImageDetails
+	DeploymentImages []types.ImageDetails
 	// DigestedImages are the overridden images with digests applied
-	DigestedImages []ImageDetails
+	DigestedImages []types.ImageDetails
 	options        skipping.ImageOptions
 	digester       ImageDigester
 }
@@ -214,7 +129,7 @@ func (hp *HelmProcessor) LoadDefaultImages() (err error) {
 // AddValuesSpecificImages finds any images in the chart values that don't
 // appear in the base chart. They are added to [HelmProcessor.Images].
 func (hp *HelmProcessor) AddValuesSpecificImages(values *yaml.Node) {
-	imageIndex := make(map[string]*ImageDetails)
+	imageIndex := make(map[string]*types.ImageDetails)
 	for i := range hp.Images {
 		id := &hp.Images[i]
 		imageIndex[id.Parent().String()] = id
@@ -234,7 +149,7 @@ func (hp *HelmProcessor) ResolveOverrides() (err error) {
 		Check(hp.LoadDefaultImages())
 		hp.AddValuesSpecificImages(values)
 	}
-	hp.DeploymentImages = make([]ImageDetails, len(hp.Images))
+	hp.DeploymentImages = make([]types.ImageDetails, len(hp.Images))
 	for i := range hp.Images {
 		hp.DeploymentImages[i] = hp.Images[i]
 		dep := &hp.DeploymentImages[i]
@@ -253,7 +168,7 @@ func (hp *HelmProcessor) Digest() (err error) {
 	}
 	options := hp.options.ImageOptions()
 	slog.Debug("digesting images")
-	hp.DigestedImages = make([]ImageDetails, len(hp.DeploymentImages))
+	hp.DigestedImages = make([]types.ImageDetails, len(hp.DeploymentImages))
 	for i := range hp.DeploymentImages {
 		var img *images.Image
 		deployImg := &hp.DeploymentImages[i]

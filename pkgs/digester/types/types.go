@@ -1,6 +1,11 @@
 package types
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/robdavid/img-pin/pkgs/images"
+	yu "github.com/robdavid/img-pin/pkgs/yaml"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -23,6 +28,101 @@ const (
 	// on blank lines. This does not always work.
 	UpdateSync //sync
 )
+
+// ImageDetails holds image fields detected from chart and deployment values,
+// including where they are located in the YAML AST.
+type ImageDetails struct {
+	Registry   yu.PathValue[string]
+	Repository yu.PathValue[string]
+	Tag        yu.PathValue[string]
+}
+
+func (d *ImageDetails) Parent() yu.Path {
+	for _, pv := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
+		if pv.Path != nil {
+			return pv.Path[:len(pv.Path)-1]
+		}
+	}
+	panic("image details have no parent path!")
+}
+
+func (d *ImageDetails) Set(img *images.Image) {
+	tag := img.Tag
+	if img.Digest != "" {
+		tag += "@" + img.Digest
+	}
+	if d.Registry.IsEmpty() {
+		if d.Tag.IsEmpty() {
+			d.Repository.Value = img.String()
+		} else {
+			d.Repository.Value = img.Registry + "/" + img.Repository
+			d.Tag.Value = tag
+		}
+	} else {
+		d.Registry.Value = img.Registry
+		if d.Tag.IsEmpty() {
+			d.Repository.Value = img.Repository + ":" + tag
+		} else {
+			d.Repository.Value = img.Repository
+			d.Tag.Value = tag
+		}
+	}
+}
+
+func (d *ImageDetails) Where() string {
+	for _, pv := range []*yu.PathValue[string]{&d.Registry, &d.Repository, &d.Tag} {
+		if len(pv.Path) > 1 {
+			parent := pv.Path[:len(pv.Path)-1]
+			return fmt.Sprintf("at path %s", parent)
+		}
+	}
+	return ""
+}
+
+
+func (d *ImageDetails) WriteInto(dep Deployment) error {
+	for _, pathValue := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
+		if pathValue.Path != nil {
+			if err := dep.WriteStringValue(pathValue.Value, pathValue.Path.Objects()...); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *ImageDetails) AddImageOverride(kustomization Kustomization) error {
+	for _, pathValue := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
+		if pathValue.Path != nil {
+			kustomization.AddImageOverride(d.Registry, d.Repository, d.Tag)
+		}
+	}
+	return nil
+}
+
+func joinStr(prefix, delim, suffix string) string {
+	if strings.HasSuffix(prefix, delim) || strings.HasPrefix(suffix, delim) {
+		return prefix + suffix
+	} else {
+		return prefix + delim + suffix
+	}
+}
+
+func (d *ImageDetails) String() string {
+	if d.Tag.Value != "" {
+		if d.Registry.Value != "" {
+			return joinStr(joinStr(d.Registry.Value, "/", d.Repository.Value), ":", d.Tag.Value)
+		}
+		return joinStr(d.Repository.Value, ":", d.Tag.Value)
+	} else {
+		if d.Registry.Value != "" {
+			return joinStr(d.Registry.Value, "/", d.Repository.Value)
+		} else {
+			return d.Repository.Value
+		}
+	}
+}
+
 
 type BaseResource interface {
 
@@ -97,4 +197,25 @@ type Deployment interface {
 
 	// CRDs returns crd documents as YAML nodes.
 	CRDs() ([]*yaml.Node, error)
+}
+
+// KustomizationOptions holds base options
+type KustomizationOptions struct {
+	Namespace     string
+	BaseDirectory string
+}
+
+// Kustomization represents a kustomization deployment resource
+type Kustomization interface {
+	BaseResource
+	// Render generates the YAML resources that describes the deployment
+	Render() ([]*yaml.Node, error)
+
+	// AddImageOverride adds the given image as an override to the Kustomize file
+	AddImageOverride(registry yu.PathValue[string], repository yu.PathValue[string], tag yu.PathValue[string])
+
+	// Options returns the options required for the deployment
+	Options() *KustomizationOptions
+
+
 }
