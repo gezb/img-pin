@@ -23,8 +23,6 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-
-
 var K3S_HELM_CHART yu.Signature = yu.Signature{
 	Tests: []yu.SigPath{
 		{Path: []any{"apiVersion"}, Re: regexp.MustCompile(`^helm\.cattle\.io/v1$`)},

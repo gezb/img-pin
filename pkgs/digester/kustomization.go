@@ -14,7 +14,6 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-
 type KustomizationProcessor struct {
 	Kustomization types.Kustomization
 	// Images holds the default image values found in the
@@ -34,6 +33,28 @@ func (*KustomizationProcessor) CanDigest() bool {
 	return true
 }
 
+func (kp *KustomizationProcessor) LoadImages() (err error) {
+	defer Catch(&err)
+	k8sResources := Try(kp.Kustomization.Render())
+	for _, doc := range k8sResources {
+		pathAndNodes := yu.K8S_WORKLOAD_SIGNATURE.Matches(doc)
+
+		if pathAndNodes != nil {
+			for _, target := range pathAndNodes {
+				var img *images.Image
+				var imageName string
+				Check(target.Node.Decode(&imageName))
+				img = Try(images.Parse(imageName))
+				kp.Images = append(kp.Images, types.ImageDetails{
+					Registry:   yu.PathValue[string]{Value: img.Registry},
+					Repository: yu.PathValue[string]{Value: img.Repository},
+					Tag:        yu.PathValue[string]{Value: img.Tag},
+				})
+			}
+		}
+	}
+	return
+}
 
 func (kp *KustomizationProcessor) Digest() (err error) {
 	options := kp.options.ImageOptions()
@@ -102,5 +123,5 @@ func (kp *KustomizationProcessor) Expand() (docs []*yaml.Node, err error) {
 }
 
 func (kp *KustomizationProcessor) CRDs() (crds []*yaml.Node, err error) {
-	return 
+	return
 }

@@ -11,6 +11,9 @@ spec:
       labels:
         app: basic
     spec:
+      initContainers:
+      - name: myinit
+        image: docker.io/busybox:1.0
       containers:
         - name: app
-          image: nginx:1.27
+          image: my-reg.com/nginx:1.27

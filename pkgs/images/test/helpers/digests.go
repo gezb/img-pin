@@ -35,7 +35,7 @@ var CommonMockDigests = []MockDigest{
 	mkMock("d8ce6327e5c55d8403542503e9e64919008c26b9d9dbf2b5cf2a85fea40c6a1a", past, "docker.io/goharbor/nginx-photon:v2.11.2", "goharbor/nginx-photon:v2.11.2"),
 	mkMock("e35d3cac38395f0c306d83ac9b587c73a93188040ec018f7e8fcfe015e507175", past, "docker.io/goharbor/harbor-portal:v2.11.1"),
 	mkMock("24498a84d9fb814e38f8c9d48b83738af79d8c028d49e25137316b968bbd76cc", past, "docker.io/goharbor/harbor-portal:v2.11.2"),
-	mkMock("c017dd84ee96df33f54677fce6a03e3dc8e00e2557447edc6015e42f34452236", past, "docker.io/goharbor/harbor-core:v2.11.1"),
+	mkMock("c017dd84ee96df33f54677fce6a03e3dc8e00e2557447edc6015e42f34452236", past, "docker.io/goharbor/harbor-core:v2.11.1", "goharbor/harbor-core:v2.11.1"),
 	mkMock("30edb2ca02e57bf6cbcac36fdea373ba6551942637c9f404c127cc8c9446f837", past, "docker.io/goharbor/harbor-jobservice:v2.11.1"),
 	mkMock("5645d459af2ba7200020a3473bc345ae87a2e2e189375b9a04cd6ec035c850fa", past, "docker.io/goharbor/registry-photon:v2.11.1"),
 	mkMock("7bdbfc97215e25879ff5e6de25f1e343b7816251458813c03a77d6b692f1b88c", past, "docker.io/goharbor/harbor-registryctl:v2.11.1"),

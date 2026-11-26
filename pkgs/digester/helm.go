@@ -20,8 +20,8 @@ func ImageDetailsFromImage(img *images.Image) (d types.ImageDetails) {
 	return d
 }
 
-func groupToDetails(root *yaml.Node, group yu.EntryGroup) (details types.ImageDetails, match bool) {
-		posns := make(map[string]int) // Positions of matches in group
+func groupToDetails(group yu.EntryGroup) (details types.ImageDetails, match bool) {
+	posns := make(map[string]int) // Positions of matches in group
 
 	for posn, entry := range group.Entries {
 		name := entry.Path[len(entry.Path)-1].String()
@@ -86,7 +86,7 @@ func searchForImageDetails(root *yaml.Node) (details []types.ImageDetails) {
 	groups := yu.GroupByPrefix(matches)
 	details = make([]types.ImageDetails, 0, len(groups))
 	for _, group := range groups {
-		if d, ok := groupToDetails(root, group); ok {
+		if d, ok := groupToDetails(group); ok {
 			if _, err := images.Parse(d.String()); err == nil {
 				details = append(details, d)
 			} else {

@@ -5,8 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	. "github.com/robdavid/genutil-go/errors/handler"
+	"github.com/robdavid/genutil-go/errors/test"
 	"github.com/robdavid/img-pin/pkgs/digester"
 	"github.com/robdavid/img-pin/pkgs/images"
+	imghelpers "github.com/robdavid/img-pin/pkgs/images/test/helpers"
+	runhelpers "github.com/robdavid/img-pin/pkgs/run/test/helpers"
 	yu "github.com/robdavid/img-pin/pkgs/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,8 +46,7 @@ func TestKustomizeDeploymentLoad(t *testing.T) {
 		require.NoError(t, deployment.Load(doc, dir))
 		assert.Equal(t, dir, deployment.baseDirectory)
 		assert.Empty(t, deployment.Options().Namespace)
-		_ , err := deployment.Save()
-		require.NoError(t, err)
+		Try(deployment.Save())
 	})
 
 	t.Run("kustomization with helm charts", func(t *testing.T) {
@@ -65,6 +68,8 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 func TestKustomizeDeploymentSaveValues(t *testing.T) {
 	const header = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+metadata:
+  name: test
 `
 
 	t.Run("imageOverrides are persisted", func(t *testing.T) {
@@ -77,45 +82,48 @@ kind: Kustomization
 		require.NoError(t, deployment.Load(readKustomization(t, dir), dir))
 		deployment.AddImageOverride(
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "registry"), 
+				Path:  yu.PathOf("image", "registry"),
 				Value: "testRegistry",
-				},
+			},
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "repository"), 
+				Path:  yu.PathOf("image", "repository"),
 				Value: "anImage",
-				},
+			},
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "tag"), 
+				Path:  yu.PathOf("image", "tag"),
 				Value: "newTag@sha2561234567890",
-				})
+			})
 		deployment.AddImageOverride(
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "registry"), 
+				Path:  yu.PathOf("image", "registry"),
 				Value: "testRegistry",
-				},
+			},
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "repository"), 
+				Path:  yu.PathOf("image", "repository"),
 				Value: "anotherImage",
-				},
+			},
 			yu.PathValue[string]{
-				Path: yu.PathOf("image", "tag"), 
+				Path:  yu.PathOf("image", "tag"),
 				Value: "anotherTag@sha2560123456789",
-				})
+			})
 		_, err := deployment.Save()
 		require.NoError(t, err)
-		
+
 		kustomization := readDoc(t, filepath.Join(dir, "kustomization.yaml"))
-		assert.Equal(t, "testRegistry/anImage", yu.Get[string](kustomization, "images",0, "name").GetOr(""))
-		assert.Equal(t, "testRegistry/anImage", yu.Get[string](kustomization, "images",0, "newName").GetOr(""))
-		assert.Equal(t, "newTag", yu.Get[string](kustomization, "images",0, "newTag").GetOr(""))
-		assert.Equal(t, "sha2561234567890", yu.Get[string](kustomization, "images",0, "digest").GetOr(""))
+		assert.Equal(t, "kustomize.config.k8s.io/v1beta1", yu.Get[string](kustomization, "apiVersion").GetOr(""))
+		assert.Equal(t, "Kustomization", yu.Get[string](kustomization, "kind").GetOr(""))
+		assert.Equal(t, "test", yu.Get[string](kustomization, "metadata", "name").GetOr(""))
+		
+		assert.Equal(t, "testRegistry/anImage", yu.Get[string](kustomization, "images", 0, "name").GetOr(""))
+		assert.Equal(t, "testRegistry/anImage", yu.Get[string](kustomization, "images", 0, "newName").GetOr(""))
+		assert.Equal(t, "newTag", yu.Get[string](kustomization, "images", 0, "newTag").GetOr(""))
+		assert.Equal(t, "sha2561234567890", yu.Get[string](kustomization, "images", 0, "digest").GetOr(""))
 
-		assert.Equal(t, "testRegistry/anotherImage", yu.Get[string](kustomization, "images",1, "name").GetOr(""))
-		assert.Equal(t, "testRegistry/anotherImage", yu.Get[string](kustomization, "images",1, "newName").GetOr(""))
-		assert.Equal(t, "anotherTag", yu.Get[string](kustomization, "images",1, "newTag").GetOr(""))
-		assert.Equal(t, "sha2560123456789", yu.Get[string](kustomization, "images",1, "digest").GetOr(""))
+		assert.Equal(t, "testRegistry/anotherImage", yu.Get[string](kustomization, "images", 1, "name").GetOr(""))
+		assert.Equal(t, "testRegistry/anotherImage", yu.Get[string](kustomization, "images", 1, "newName").GetOr(""))
+		assert.Equal(t, "anotherTag", yu.Get[string](kustomization, "images", 1, "newTag").GetOr(""))
+		assert.Equal(t, "sha2560123456789", yu.Get[string](kustomization, "images", 1, "digest").GetOr(""))
 	})
-
 
 }
 
@@ -198,118 +206,92 @@ func TestKustomizeDeploymentRenderError(t *testing.T) {
 	assert.Empty(t, docs)
 }
 
-// func TestKustomizeHandler(t *testing.T) {
-// 	t.Run("matches kustomization", func(t *testing.T) {
-// 		dir := filepath.Join("tests", "basic")
-// 		doc := readKustomization(t, dir)
-// 		resource := KustomizeHandler{}.Match(doc, digester.NonLockingImageDigester{}, nil)
-// 		require.NotNil(t, resource)
-// 		_, ok := resource.(*digester.KustomizationProcessor)
-// 		assert.True(t, ok)
-// 		require.NoError(t, resource.Load(doc, dir))
-// 	})
+func TestKustomizeHandler(t *testing.T) {
+	t.Run("matches kustomization", func(t *testing.T) {
+		dir := filepath.Join("tests", "basic")
+		doc := readKustomization(t, dir)
+		resource := KustomizeHandler{}.Match(doc, digester.NonLockingImageDigester{}, nil)
+		require.NotNil(t, resource)
+		_, ok := resource.(*digester.KustomizationProcessor)
+		assert.True(t, ok)
+		require.NoError(t, resource.Load(doc, dir))
+	})
 
-// 	t.Run("ignores other resources", func(t *testing.T) {
-// 		doc := readDoc(t, filepath.Join("tests", "basic", "deployment.yaml"))
-// 		resource := KustomizeHandler{}.Match(doc, digester.NonLockingImageDigester{}, nil)
-// 		assert.Nil(t, resource)
-// 	})
-// }
+	t.Run("ignores other resources", func(t *testing.T) {
+		doc := readDoc(t, filepath.Join("tests", "basic", "deployment.yaml"))
+		resource := KustomizeHandler{}.Match(doc, digester.NonLockingImageDigester{}, nil)
+		assert.Nil(t, resource)
+	})
+}
 
-// func TestDigest(t *testing.T) {
-// 	type ass = *assert.Assertions
-// 	type req = *require.Assertions
-// 	type testFn = func(t *testing.T, assert ass, require req)
-// 	runner := func(mode runhelpers.ScriptMode, testFn testFn) func(t *testing.T) {
-// 		return func(t *testing.T) {
-// 			defer test.ReportErr(t)
-// 			images.MockDigest(t, imghelpers.CommonMockDigestFunc)
-// 			runhelpers.Script(t, runhelpers.ScriptOpts{
-// 				OutputFile: "tests/run-*.json",
-// 				ArgCompare: runhelpers.ArgsCompare,
-// 				Mode:       mode,
-// 			})
-// 			testFn(t, assert.New(t), require.New(t))
-// 		}
-// 	}
+func TestDigest(t *testing.T) {
+	type ass = *assert.Assertions
+	type req = *require.Assertions
+	type testFn = func(t *testing.T, assert ass, require req)
+	runner := func(mode runhelpers.ScriptMode, testFn testFn) func(t *testing.T) {
+		return func(t *testing.T) {
+			defer test.ReportErr(t)
+			images.MockDigest(t, imghelpers.CommonMockDigestFunc)
+			runhelpers.Script(t, runhelpers.ScriptOpts{
+				OutputFile: "tests/run-*.json",
+				ArgCompare: runhelpers.ArgsCompare,
+				Mode:       mode,
+			})
+			testFn(t, assert.New(t), require.New(t))
+		}
+	}
 
-// 	run := func(testFn testFn) func(*testing.T) { return runner(runhelpers.ScriptModeAuto, testFn) }
-// 	// runEmpty := func(testFn testFn) func(*testing.T) { return runner(runhelpers.ScriptModeEmpty, testFn) }
+	run := func(testFn testFn) func(*testing.T) { return runner(runhelpers.ScriptModeAuto, testFn) }
 
-// 	t.Run("loading full values", run(func(t *testing.T, assert ass, require req) {
-// 		dir := filepath.Join("tests", "harbor")
-// 		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
-// 		require.Equal(1, len(docs))
-// 		kustomizeDeployment := KustomizeDeployment{}
-// 		kustomizeDeployment.Load(docs[0], dir)
-// 		kProc := digester.MakeKustomizationProcessor(&kustomizeDeployment, noSkipOptions{}, digester.NonLockingImageDigester{})
-// 		Check(kProc.LoadImages())
-// 		require.Equal(10, len(kProc.Images))
-// 		image := kProc.Images[0].Repository.Value + ":" + kProc.Images[0].Tag.Value
-// 		fmt.Println(image, kProc.Images[0].Repository.Path)
-// 		digested, _, _ := Try3(images.Digest(image, images.IncludeTag, images.SkipTime))
-// 		fmt.Println(digested)
-// 	}))
+	t.Run("extracts initContainers and containers", run(func(t *testing.T, assert ass, require req) {
+		dir := filepath.Join("tests", "basic")
+		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
+		require.Equal(1, len(docs))
+		kustomizeDeployment := KustomizeDeployment{}
+		kustomizeDeployment.Load(docs[0], dir)
+		kProc := digester.MakeKustomizationProcessor(&kustomizeDeployment, noSkipOptions{}, digester.NonLockingImageDigester{})
+		Check(kProc.LoadImages())
+		// Deployment has 1 initContainer and 1 container
+		require.Equal(2, len(kProc.Images))
+		image := kProc.Images[0].Registry.Value + "/" + kProc.Images[0].Repository.Value + ":" + kProc.Images[0].Tag.Value
+		assert.Equal("my-reg.com/nginx:1.27", image)
+		image = kProc.Images[1].Registry.Value + "/" + kProc.Images[1].Repository.Value + ":" + kProc.Images[1].Tag.Value
+		assert.Equal("docker.io/library/busybox:1.0", image)
+	}))
 
-	// t.Run("loading chart values", runEmpty(func(t *testing.T, assert ass, require req) {
-	// 	dir := filepath.Join("tests", "harbor")
-	// 	docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
-	// 	require.Equal(1, len(docs))
-	// 	deployment := KustomizeDeployment{}
-	// 	deployment.Load(docs[0], dir)
-	// 	value := yu.Get[string](Try(deployment.Values()), "expose", "ingress", "hosts", "core")
-	// 	assert.Equal(opt.Value("harbor.domain"), value)
-	// }))
+	t.Run("extracts images and can digest", run(func(t *testing.T, assert ass, require req) {
+		dir := filepath.Join("tests", "harbor")
+		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
+		require.Equal(1, len(docs))
+		kustomizeDeployment := KustomizeDeployment{}
+		kustomizeDeployment.Load(docs[0], dir)
+		kProc := digester.MakeKustomizationProcessor(&kustomizeDeployment, noSkipOptions{}, digester.NonLockingImageDigester{})
+		Check(kProc.LoadImages())
+		// k3s version of this test has 1 extra image "goharbor/nginx-photon:v2.11.1"
+		// but I dont see why as expose.type == ingress in values and the charts values state
+		// # If service exposed via "ingress", the Nginx will not be used
+		require.Equal(9, len(kProc.Images))
+		image := kProc.Images[0].Registry.Value + "/" + kProc.Images[0].Repository.Value + ":" + kProc.Images[0].Tag.Value
+		assert.Equal("goharbor/harbor-core:v2.11.1", image)
+		digested, _, _ := Try3(images.Digest(image, images.IncludeTag, images.SkipTime))
+		assert.Equal("docker.io/goharbor/harbor-core:v2.11.1@sha256:c017dd84ee96df33f54677fce6a03e3dc8e00e2557447edc6015e42f34452236", digested)
+	}))
 
-	// t.Run("loading overrides", run(func(t *testing.T, assert ass, require req) {
-	// 	dir := filepath.Join("tests", "harbor")
-	// 	docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
-	// 	require.Equal(1, len(docs))
-	// 	deployment := KustomizeDeployment{}
-	// 	deployment.Load(docs[0], dir)
-	// 	helmProc := digester.MakeHelmProcessor(&deployment, noSkipOptions{}, digester.NonLockingImageDigester{})
-	// 	Check(helmProc.LoadDefaultImages())
-	// 	Check(helmProc.ResolveOverrides())
-	// 	assert.Equal(10, len(helmProc.DeploymentImages))
-	// 	img := Try(images.Parse(helmProc.DeploymentImages[0].String()))
-	// 	assert.Equal("v2.11.2", img.Tag)
-	// }))
+	t.Run("extracts images and can digest", run(func(t *testing.T, assert ass, require req) {
+		// Copy to temp dir
+		todo
 
-	// t.Run("test helm update", run(func(t *testing.T, assert ass, require req) {
-	// 	dir := filepath.Join("tests", "harbor")
-	// 	docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
-	// 	require.Equal(1, len(docs))
-	// 	deployment := KustomizeDeployment{}
-	// 	deployment.Load(docs[0], dir)
-	// 	helmProc := digester.MakeHelmProcessor(&deployment, noSkipOptions{}, digester.NonLockingImageDigester{})
-	// 	Check(helmProc.Digest())
-	// 	deployment.Save()
-	// }))
+		dir := filepath.Join("tests", "harbor")
+		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
+		require.Equal(1, len(docs))
+		kustomizeDeployment := KustomizeDeployment{}
+		kustomizeDeployment.Load(docs[0], dir)
+		kProc := digester.MakeKustomizationProcessor(&kustomizeDeployment, noSkipOptions{}, digester.NonLockingImageDigester{})
+		Check(kProc.Digest())
+		
+		kustomization := Try(kProc.Save())
+		Load and validate
+		// require.Equal(9, len(kProc.Kustomization))
+	}))
 
-	// t.Run("test helm value set", run(func(t *testing.T, assert ass, require req) {
-	// 	dir := filepath.Join("tests", "nginx-ingress")
-	// 	docs := Try(yu.ReadDocs("tests/nginx-ingress/kustomization.yaml"))
-	// 	require.Equal(1, len(docs))
-	// 	deployment := KustomizeDeployment{}
-	// 	deployment.Load(docs[0], dir)
-	// 	helmProc := digester.MakeHelmProcessor(&deployment, noSkipOptions{}, digester.NonLockingImageDigester{})
-	// 	Check(helmProc.Digest())
-	// 	deployment.Save()
-	// 	resources := Try(deployment.Render())
-	// 	assert.Equal(10, len(resources))
-	// 	for _, resource := range resources {
-	// 		if kind, ok := yu.Get[string](resource, "kind").GetOK(); ok && kind == "Service" {
-	// 			type obj = map[string]any
-	// 			type lst = []any
-	// 			var service obj
-	// 			Check(resource.Decode(&service))
-	// 			port0 := service["spec"].(obj)["ports"].(lst)[0].(obj)["port"]
-	// 			port1 := service["spec"].(obj)["ports"].(lst)[1].(obj)["port"]
-	// 			assert.Equal(8080, port0)
-	// 			assert.Equal(8443, port1)
-	// 			break
-	// 		}
-	// 	}
-	// }))
-
-// }
+}

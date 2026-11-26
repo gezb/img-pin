@@ -79,7 +79,6 @@ func (d *ImageDetails) Where() string {
 	return ""
 }
 
-
 func (d *ImageDetails) WriteInto(dep Deployment) error {
 	for _, pathValue := range []yu.PathValue[string]{d.Registry, d.Repository, d.Tag} {
 		if pathValue.Path != nil {
@@ -122,7 +121,6 @@ func (d *ImageDetails) String() string {
 		}
 	}
 }
-
 
 type BaseResource interface {
 
@@ -216,6 +214,4 @@ type Kustomization interface {
 
 	// Options returns the options required for the deployment
 	Options() *KustomizationOptions
-
-
 }
