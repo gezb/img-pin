@@ -46,9 +46,9 @@ func (kp *KustomizationProcessor) LoadImages() (err error) {
 				Check(target.Node.Decode(&imageName))
 				img = Try(images.Parse(imageName))
 				kp.Images = append(kp.Images, types.ImageDetails{
-					Registry:   yu.PathValue[string]{Value: img.Registry},
-					Repository: yu.PathValue[string]{Value: img.Repository},
-					Tag:        yu.PathValue[string]{Value: img.Tag},
+					Registry:   yu.PathValue[string]{Path: yu.PathOf("Registry"), Value: img.Registry},
+					Repository: yu.PathValue[string]{Path: yu.PathOf("Repository"), Value: img.Repository},
+					Tag:        yu.PathValue[string]{Path: yu.PathOf("Tag"), Value: img.Tag},
 				})
 			}
 		}
@@ -57,6 +57,9 @@ func (kp *KustomizationProcessor) LoadImages() (err error) {
 }
 
 func (kp *KustomizationProcessor) Digest() (err error) {
+	if len(kp.Images) ==0 {
+		kp.LoadImages()
+	}
 	options := kp.options.ImageOptions()
 	slog.Debug("digesting images")
 	kp.DigestedImages = make([]types.ImageDetails, len(kp.Images))

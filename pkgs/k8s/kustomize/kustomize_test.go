@@ -10,6 +10,7 @@ import (
 	"github.com/robdavid/img-pin/pkgs/digester"
 	"github.com/robdavid/img-pin/pkgs/images"
 	imghelpers "github.com/robdavid/img-pin/pkgs/images/test/helpers"
+	"github.com/robdavid/img-pin/pkgs/internal/test/helpers"
 	runhelpers "github.com/robdavid/img-pin/pkgs/run/test/helpers"
 	yu "github.com/robdavid/img-pin/pkgs/yaml"
 	"github.com/stretchr/testify/assert"
@@ -40,17 +41,19 @@ func (o noSkipOptions) ImageOptions() []images.ImageOption { return o }
 
 func TestKustomizeDeploymentLoad(t *testing.T) {
 	t.Run("basic kustomization", func(t *testing.T) {
-		dir := filepath.Join("tests", "basic")
+		tempDir := helpers.CopyToTempDir(t, "tests/basic")
+		dir := tempDir.Dir
 		doc := readKustomization(t, dir)
 		deployment := &KustomizeDeployment{}
 		require.NoError(t, deployment.Load(doc, dir))
 		assert.Equal(t, dir, deployment.baseDirectory)
 		assert.Empty(t, deployment.Options().Namespace)
-		Try(deployment.Save())
+		assert.Equal(t, 2, len(Try(deployment.Render())))
 	})
 
 	t.Run("kustomization with helm charts", func(t *testing.T) {
-		dir := filepath.Join("tests", "helm")
+		tempDir := helpers.CopyToTempDir(t, "tests/helm")
+		dir := tempDir.Dir
 		doc := readKustomization(t, dir)
 		deployment := &KustomizeDeployment{}
 		require.NoError(t, deployment.Load(doc, dir))
@@ -139,7 +142,7 @@ func TestKustomizeDeploymentRender(t *testing.T) {
 			name:      "basic kustomization",
 			dir:       filepath.Join("tests", "basic"),
 			numDocs:   2,
-			image:     "nginx:1.27",
+			image:     "my-reg.com/nginx:1.27",
 			namespace: "",
 		},
 		{
@@ -260,7 +263,11 @@ func TestDigest(t *testing.T) {
 	}))
 
 	t.Run("extracts images and can digest", run(func(t *testing.T, assert ass, require req) {
-		dir := filepath.Join("tests", "harbor")
+		tempDir := helpers.CopyToTempDir(t, "tests/harbor")
+		chartLocation :=filepath.Join(tempDir.Dir, "charts", "harbor") 
+		Try0(os.MkdirAll(chartLocation, 0o755))
+		helpers.CopyTo(filepath.Join("..", "tests/charts/harbor"), chartLocation)
+		dir := tempDir.Dir
 		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
 		require.Equal(1, len(docs))
 		kustomizeDeployment := KustomizeDeployment{}
@@ -272,16 +279,18 @@ func TestDigest(t *testing.T) {
 		// # If service exposed via "ingress", the Nginx will not be used
 		require.Equal(9, len(kProc.Images))
 		image := kProc.Images[0].Registry.Value + "/" + kProc.Images[0].Repository.Value + ":" + kProc.Images[0].Tag.Value
-		assert.Equal("goharbor/harbor-core:v2.11.1", image)
+		assert.Equal("docker.io/goharbor/harbor-core:v2.11.1", image)
 		digested, _, _ := Try3(images.Digest(image, images.IncludeTag, images.SkipTime))
 		assert.Equal("docker.io/goharbor/harbor-core:v2.11.1@sha256:c017dd84ee96df33f54677fce6a03e3dc8e00e2557447edc6015e42f34452236", digested)
 	}))
 
-	t.Run("extracts images and can digest", run(func(t *testing.T, assert ass, require req) {
-		// Copy to temp dir
-		todo
+	t.Run("extracts images and can digests and saves", run(func(t *testing.T, assert ass, require req) {
+		tempDir := helpers.CopyToTempDir(t, "tests/harbor")
+		chartLocation :=filepath.Join(tempDir.Dir, "charts", "harbor") 
+		Try0(os.MkdirAll(chartLocation, 0o755))
+		helpers.CopyTo(filepath.Join("..", "tests/charts/harbor"), chartLocation)
+		dir := tempDir.Dir
 
-		dir := filepath.Join("tests", "harbor")
 		docs := Try(yu.ReadDocs(filepath.Join(dir, "kustomization.yaml")))
 		require.Equal(1, len(docs))
 		kustomizeDeployment := KustomizeDeployment{}
@@ -290,8 +299,10 @@ func TestDigest(t *testing.T) {
 		Check(kProc.Digest())
 		
 		kustomization := Try(kProc.Save())
-		Load and validate
-		// require.Equal(9, len(kProc.Kustomization))
+		assert.Equal(t, "kustomize.config.k8s.io/v1beta1", yu.Get[string](kustomization, "apiVersion").GetOr(""))
+		assert.Equal(t, "Kustomization", yu.Get[string](kustomization, "kind").GetOr(""))
+		assert.Equal(t, "test", yu.Get[string](kustomization, "metadata", "name").GetOr(""))
+		
 	}))
 
 }
